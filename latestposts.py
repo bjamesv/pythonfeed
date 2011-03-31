@@ -1,20 +1,31 @@
 import feedparser
+import os.path
 import time
 import calendar
 import urlparse
+import mod_python
 
-def run( url_file_name='C:\Program Files\Apache Software Foundation\Apache2.2\htdocs\python\urls.ini', new_window='n' ):
-  url_file = open( url_file_name,'r')
+def run( req):
+  apache_fields = mod_python.util.FieldStorage(req)
+  url_file_name='urls.ini'
+  if( apache_fields.has_key('urls')): url_file_name=apache_fields.getfirst('urls')
+  new_window='n'
+  if( apache_fields.has_key('window')): new_window='y'
+  apache_location = ''.join([req.document_root(),os.path.dirname(req.uri),"/"])
+  apache_file_name = ''.join([ apache_location, url_file_name])
+  url_file = open( apache_file_name,'r')
   urls = url_file.readlines()
   url_file.close()
 
   feeds =[]
 
   for url in urls:
+    url_six_tuple = urlparse.urlparse(url)
+    six_tuple_filename = ''.join(  url_six_tuple )
+    if( os.path.exists( ''.join( [apache_location,]) )):
+      pass
     fp = feedparser.parse( url)
-    counter = 0
     feeds.append(fp)
-    #print feeds
 
 
   def formatEntry( entry, make_grey_tuple, source_feed, epoch):
@@ -45,10 +56,7 @@ def run( url_file_name='C:\Program Files\Apache Software Foundation\Apache2.2\ht
       print_title = 'None'
       #print ''.join( ["no title ", which_feed])
     
-    if ( entry.has_key('description')): print_description = entry.description
-    else:
-      print_description = 'None'
-      #print ''.join( ["no description ", which_feed])
+
     
     if ( source_feed.feed.has_key('icon') ):
       print_image = source_feed.feed.icon
@@ -61,17 +69,26 @@ def run( url_file_name='C:\Program Files\Apache Software Foundation\Apache2.2\ht
       url = urlparse.urlparse(print_link)
       print_image = ''.join(["http://",url.hostname,"/favicon.ico"])
       #print ''.join( ["no icon ", str(which_feed)])
-    
-    print_content = 'not there'
+      
+    if ( entry.has_key('description')): print_description = entry.description
+    else:
+      print_description = 'None'
+      #print ''.join( ["no description ", which_feed])
+      
+    print_content = ''
     if ( entry.has_key('content') ):
-      print_content = 'gh'#entry.content[0].value #''.join([len(entry.content), " ", entry.content[0].value])
+      for c in entry.content:
+        print_content = ''.join( [print_content, c.value] )
+    else:
+      print_content = print_description
+      
     href_target = ''
     if(new_window == 'y'):href_target = "target=\"_blank\""
     return ''.join( [ "<h3> &nbsp; ",print_date,"</h3>",
                     "<h5><img height=16 width=16 src=\"",print_image,"\"></img> <a ",href_target," href=\"",
                                         print_link,"\">",print_title,"</a> - ",which_feed," - ",print_more_date,"</h5>",
                         p_tag,"<tr><td><small>", 
-                        print_description,"<br></small></td></tr></table>"])
+                        print_content,"<br></small></td></tr></table>"])
 
   def formatString( string):
     return ''.join( ["<p>",string,"</p>"])
