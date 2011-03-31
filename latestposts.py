@@ -3,30 +3,125 @@ import os.path
 import time
 import calendar
 import urlparse
-import mod_python
+import pickle
+import sys
+import threading
+import Queue
 
-def run( req):
-  apache_fields = mod_python.util.FieldStorage(req)
-  url_file_name='urls.ini'
-  if( apache_fields.has_key('urls')): url_file_name=apache_fields.getfirst('urls')
-  new_window='n'
-  if( apache_fields.has_key('window')): new_window='y'
-  apache_location = ''.join([req.document_root(),os.path.dirname(req.uri),"/"])
+
+
+
+def dump_feed( fp, six_tuple_fullpath):
+  if(fp.has_key('etag')):e_tag=fp.etag
+  else: e_tag=''
+  if(fp.has_key('modified')): mod=fp.modified
+  else: mod=''
+  stored_fields = { 'xml':fp.xml, 'etag':e_tag, 'modified':mod}
+  sys.stderr.write(''.join( ["dumping: ",fp.xml, "etag", str(e_tag), "mod", str(mod) ]))
+  out_file = open(six_tuple_fullpath, 'w')
+  pickle.dump( stored_fields,out_file)
+  out_file.close()
+
+def load_feed( url, six_tuple_fullpath):
+  stored_fields = pickle.load(open(six_tuple_fullpath, 'r'))
+  re_request_fp = feedparser.parse( url, etag=stored_fields['etag'], modified=stored_fields['modified'])
+  sys.stderr.write(''.join( ["pre status ",url ]))
+  if(re_request_fp.has_key('status')):
+    sys.stderr.write(''.join( ["pre 304 ",url, str(re_request_fp.status) ]))
+    if( re_request_fp.status == 304):
+      sys.stderr.write(''.join( ["304! ",url ]))
+      return feedparser.parse(stored_fields['xml'])
+  #else
+  re_request_fp = feedparser.parse( url)
+  sys.stderr.write(''.join( [" dumping fresh url INSIDE load_feed", url ]))
+  dump_feed( re_request_fp, six_tuple_fullpath)
+  return re_request_fp
+
+
+def fetch_process( queue, url, apache_location):
+    #fp = feedparser.parse( url)
+    #queue.put(fp)
+    #return fp
+    url_six_tuple = urlparse.urlparse(url)
+    six_tuple_filename = str.replace(''.join(  url_six_tuple ),'/','')
+    six_tuple_fullpath = ''.join( [apache_location,six_tuple_filename])
+    six_tuple_fullpath = six_tuple_fullpath.rstrip()
+    if( os.path.exists( six_tuple_fullpath )):
+      sys.stderr.write(''.join( [" loading feed", six_tuple_fullpath ]))
+      fp = load_feed( url, six_tuple_fullpath)
+    else:
+      fp = feedparser.parse( url)
+      sys.stderr.write(''.join( [" dumping fresh url", url ]))
+      dump_feed( fp, six_tuple_fullpath)
+    queue.put(fp)
+    return fp
+    
+def clean( processes):
+  for p in processes[:]:
+    if (p.is_alive()):
+      pass
+    else:
+      processes.remove(p)
+
+def run( url_file_name, new_window, start_entry_to_display, num_entries_to_display, req_uri, apache_location):
+  print apache_location
+  apache_location = 'C:/Program Files/Apache Software Foundation/Apache2.2/htdocs/python//'
   apache_file_name = ''.join([ apache_location, url_file_name])
   url_file = open( apache_file_name,'r')
   urls = url_file.readlines()
   url_file.close()
 
+
   feeds =[]
-
-  for url in urls:
-    url_six_tuple = urlparse.urlparse(url)
-    six_tuple_filename = ''.join(  url_six_tuple )
-    if( os.path.exists( ''.join( [apache_location,]) )):
-      pass
-    fp = feedparser.parse( url)
-    feeds.append(fp)
-
+  header = "<html><body>"
+  q = Queue.Queue()
+  threads =[]
+  def profile_threads():
+    for url in urls:
+      p = threading.Thread(target=fetch_process, args=(q, url, apache_location))
+      p.start()
+      #feeds.append(fetch_process(q, url))
+      threads.append(p)
+      
+    #out = ""
+    #for a in threads:
+    #  out = ''.join( [out, a.name, " - " ])
+    ##return out
+    ##begin fetching results from the queue, until all subprocesses are done
+    while not (q.empty()) or not ( len(threads) == 0):
+      try:
+        fp = q.get(False)
+        feeds.append(fp)
+        clean(threads)
+      except:
+        pass
+    return str(len(feeds))
+  
+  def profile_no_threads():
+    for url in urls:
+      #p = threading.Thread(target=fetch_process, args=(q, url))
+      #p.start()
+      feeds.append(fetch_process(q, url, apache_location))
+      #threads.append(p)
+      
+    #out = ""
+    #for a in threads:
+    #  out = ''.join( [out, a.name, " - " ])
+    ##return out
+    ##begin fetching results from the queue, until all subprocesses are done
+    #while not (q.empty()) or not ( len(threads) == 0):
+    #  try:
+    #    fp = q.get(False)
+    #    feeds.append(fp)
+    #    clean(threads)
+    #  except:
+    #    pass
+    #return str(len(feeds))
+  import cProfile
+  prof = cProfile.Profile()
+  #prof.runcall( profile_threads )
+  #prof.print_stats()#'C:/Program Files/Apache Software Foundation/Apache2.2/htdocs/test/python/profout.txt')
+  profile_threads()
 
   def formatEntry( entry, make_grey_tuple, source_feed, epoch):
     make_grey =  make_grey_tuple[0]
@@ -38,7 +133,7 @@ def run( req):
     
     #what about a date?
     secs = time.localtime(epoch)
-    print_more_date = time.strftime("%b, %y %Z" , secs) #Jan, 10 GMT
+    print_more_date = time.strftime("%b %d, %Y %Z" , secs) #Jan, 10 GMT
     print_date = time.strftime("%A - %I:%M%p" , secs) #Monday - 12:00PM
 
     if (make_grey == True):
@@ -55,9 +150,6 @@ def run( req):
     else:
       print_title = 'None'
       #print ''.join( ["no title ", which_feed])
-    
-
-    
     if ( source_feed.feed.has_key('icon') ):
       print_image = source_feed.feed.icon
       #print source_feed.feed.icon
@@ -89,7 +181,20 @@ def run( req):
                                         print_link,"\">",print_title,"</a> - ",which_feed," - ",print_more_date,"</h5>",
                         p_tag,"<tr><td><small>", 
                         print_content,"<br></small></td></tr></table>"])
-
+  
+  def formatPageControls( num, total, req_uri, url_file_name, new_window, starting_entry):
+    l = ''
+    for a in range(total/num):
+      for entry in range(a*num):
+        l = ''.join( [ "page ", ])
+    for a in range(total/num):
+      l = ''.join( [l, "<a href=\"",os.path.split(req_uri)[1],
+                    "?urls=",url_file_name,
+                    "&window=",new_window,
+                    "&start=",str(a*num),
+                    "&num=",str(num),
+                    "\">",str(a),"</a>, "])
+    return ''.join( ["<p><small>< ",l," ></small></p>"])
   def formatString( string):
     return ''.join( ["<p>",string,"</p>"])
 
@@ -109,13 +214,16 @@ def run( req):
 
        
   entries.sort( key=lambda entries_tuple: entries_tuple[1], reverse=True)
-
-  header = "<html><body>"
+  if ( num_entries_to_display == None):
+    num_entries_to_display = len(entries)+1
+  
+  
   footer = "</body></html>"
   html = header
 
   grey_status = [True]
-  for entry in entries:
+  html = ''.join( [html, formatPageControls(num_entries_to_display, len(entries),req_uri,url_file_name, new_window, start_entry_to_display)])
+  for entry in entries[start_entry_to_display:num_entries_to_display+start_entry_to_display]:
     html = ''.join( [ html, formatEntry( entry[0], grey_status, entry[2], entry[1])])
 
   html = ''.join( [ html, footer])
