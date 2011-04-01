@@ -1,28 +1,9 @@
-from cgi import parse_qs, escape
-from latestposts import run
+from urlparse import parse_qs
+from latestposts import UrlHandler
 
 def application(environ, start_response):
-  parameters = parse_qs(environ.get('QUERY_STRING', ''))
-  if 'urls' in parameters:
-    url_file_name = escape(parameters['urls'][0])
-  else:
-    url_file_name='urls.ini'
-
-  if 'window' in parameters:
-    new_window= 'y'
-  else:
-    new_window='n'
-
-
-  if 'start' in parameters:
-    start_entry_to_display = int(escape(parameters['start'][0]))
-  else:
-    start_entry_to_display = 0
-    
-  if 'num' in parameters:
-    num_entries_to_display = int(escape(parameters['num'][0]))
-  else:
-    num_entries_to_display = None
+  keep_blank_values = True
+  parameters = parse_qs(environ.get('QUERY_STRING', ''), keep_blank_values)
     
   from urllib import quote
   url = environ['wsgi.url_scheme']+'://'
@@ -42,9 +23,16 @@ def application(environ, start_response):
   url += quote(environ.get('SCRIPT_NAME', ''))
   url += quote(environ.get('PATH_INFO', ''))
   req_uri = url
-  apache_location = '' #.join([req.document_root(),os.path.dirname(req.uri),"/"])
+  if 'DOCUMENT_ROOT' in environ:
+      apache_location = ''.join([environ['DOCUMENT_ROOT'],environ.get('SCRIPT_NAME', '')])
+      #we have the URL path which includes a nonexistant script "file name"
+      apache_location = apache_location.rstrip('/')
+      apache_location = ''.join([apache_location.rpartition('/')[0],"/"])
+  else:
+      apache_location = 'C:/Program Files/Apache Software Foundation/Apache2.2/htdocs/test/python//'                         
   start_response('200 OK', [('Content-Type', 'text/html')])
-  return run( url_file_name, new_window, start_entry_to_display, num_entries_to_display, req_uri, apache_location)
+  handler = UrlHandler( parameters, req_uri, apache_location)
+  return handler.run()
 
 if __name__ == '__main__':
   from wsgiref.simple_server import make_server

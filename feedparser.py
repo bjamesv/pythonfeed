@@ -184,7 +184,8 @@ class FeedParserDict(UserDict):
               'copyright': 'rights',
               'copyright_detail': 'rights_detail',
               'tagline': 'subtitle',
-              'tagline_detail': 'subtitle_detail'}
+              'tagline_detail': 'subtitle_detail',
+              'xml':'results'}
     def __getitem__(self, key):
         if key == 'category':
             return UserDict.__getitem__(self, 'tags')[0]['term']
@@ -2522,7 +2523,7 @@ def parse(url_file_stream_or_string, etag=None, modified=None, agent=None, refer
 
     baseuri = http_headers.get('content-location', result.get('href'))
     baselang = http_headers.get('content-language', None)
-
+    result['xml'] = data
     # if server sent 304, we're done
     if result.get('status', 0) == 304:
         result['version'] = ''
