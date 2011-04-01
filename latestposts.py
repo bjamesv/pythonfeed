@@ -19,12 +19,12 @@ def dump_feed( fp, six_tuple_fullpath):
   stored_fields = { 'xml':fp.xml, 'etag':e_tag, 'modified':mod}
   #sys.stderr.write(''.join( ["dumping: ",fp.xml, "etag", str(e_tag), "mod", str(mod) ]))
   logging.debug(''.join( ["dumping: ",fp.xml, "etag", str(e_tag), "mod", str(mod) ]))
-  out_file = open(six_tuple_fullpath, 'w')
+  out_file = open(six_tuple_fullpath, 'wb')
   pickle.dump( stored_fields,out_file)
   out_file.close()
 
 def load_feed( url, six_tuple_fullpath):
-  stored_fields = pickle.load(open(six_tuple_fullpath, 'r'))
+  stored_fields = pickle.load(open(six_tuple_fullpath, 'rb'))
   re_request_fp = feedparser.parse( url, etag=stored_fields['etag'], modified=stored_fields['modified'])
   #sys.stderr.write(''.join( ["pre status ",url ]))
   logging.warning(''.join( ["pre status ",url ]))
@@ -124,7 +124,6 @@ class UrlHandler():
       back_url = self.generatePythonURL()
       file_name = self.url_file_name
       header = "<html><head><title>Python Feeds</title>"\
-               '<link rel="stylesheet" type="text/css" href="editor.css"></head><body>'\
                "<h3>Editing urls list: %(file_name)s</h3><table>"\
                '<p><a href="%(back_url)s">Back to Python Feeds</p>' %locals()
       html = header + error_html
@@ -204,10 +203,10 @@ class UrlHandler():
       print_date = time.strftime("%A - %I:%M%p" , secs) #Monday - 12:00PM
 
       if (make_grey == True):
-        p_tag = "<table bgcolor=#DDDDDD>"
+        p_tag = "make_grey"
         make_grey_tuple[0] = False
       else:
-        p_tag = "<table>"
+        p_tag = "non_grey"
         make_grey_tuple[0] = True
       if ( entry.has_key('link')): print_link = entry.link
       else:
@@ -243,11 +242,13 @@ class UrlHandler():
         
       href_target = ''
       if(self.new_window == 'y'):href_target = "target=\"_blank\""
-      return ''.join( [ "<h3> &nbsp; ",print_date,"</h3>",
-                      "<h5><img height=16 width=16 src=\"",print_image,"\"></img> <a ",href_target," href=\"",
-                                          print_link,"\">",print_title,"</a> - ",which_feed," - ",print_more_date,"</h5>",
-                          p_tag,"<tr><td><small>", 
-                          print_content,"<br></small></td></tr></table>"])
+      hidden_header = ''.join( ['<p class="hidden_header"><span class="show_button"><br>[',which_feed,'][Hidden: ',\
+                                print_title,' - ',print_more_date,'',print_date,'][show full]<br><br></span></p>'])
+      return ''.join( [ hidden_header,'<div class="hidden_post"><h3  class="title"> &nbsp; ',print_date,' <span class="hide_button">(hide)</span></h3>',
+                      '<img height=16 width=16 src=\"',print_image,"\"></img> <a ",href_target," href=\"",
+                                          print_link,"\">",print_title,"</a> - ",which_feed," - ",print_more_date,"",
+                          '<small><br><p class="',p_tag,'">', 
+                          print_content,"</p></small></div>"])
     
   def generatePythonEdit_URL(self):
       editURL = self.generatePythonURL()
@@ -259,18 +260,36 @@ class UrlHandler():
 
       
       """
-      l = ''
+      html_prev = "&lt; prev"
+      html_next = "next &gt;"
+      l = ''.join( [ "page ", ])
       for a in range(total/num):
-        for entry in range(a*num):
-          l = ''.join( [ "page ", ])
-      for a in range(total/num):
+        link_start = a*num
+        link_name = str(a+1)
+        if( link_start == starting_entry):
+            link_name = "Current page (" + str(a+1) + ")"
+        elif ( link_start == starting_entry-num):
+            html_prev = ''.join( ["<a href=\"",os.path.split(req_uri)[1],
+                      "?urls=",url_file_name,
+                      "&window=",new_window,
+                      "&start=",str(link_start),
+                      "&num=",str(num),
+                      "\">","&lt; prev","</a>, "])
+        elif ( link_start == starting_entry+num):
+            html_next = ''.join( ["<a href=\"",os.path.split(req_uri)[1],
+                      "?urls=",url_file_name,
+                      "&window=",new_window,
+                      "&start=",str(link_start),
+                      "&num=",str(num),
+                      "\">","next &gt;","</a>, "])
+        
         l = ''.join( [l, "<a href=\"",os.path.split(req_uri)[1],
                       "?urls=",url_file_name,
                       "&window=",new_window,
-                      "&start=",str(a*num),
+                      "&start=",str(link_start),
                       "&num=",str(num),
-                      "\">",str(a),"</a>, "])
-      return ''.join( ["<p>< ",l," ></p>"])
+                      "\">",link_name,"</a>, "])
+      return ''.join( ["<p>",html_prev," ",l," ",html_next,"</p>"])
     
   def formatUrlsEditControl(self):
       edit_url = '<p><a href="%s">Add/modify Subscribed feeds.</a></p>' % ( self.generatePythonEdit_URL())
@@ -339,7 +358,69 @@ class UrlHandler():
     
 
     self.feeds =[]
-    header = "<html><head><title>Python Feeds</title></head><body>"
+    header = "<html><head><title>Python Feeds</title>"\
+"""
+<style type="text/css"> 
+body {
+	margin: 20px auto;
+}
+.make_grey {
+background-color:#DDDDDD;
+}
+ 
+.heading {
+margin: 1px;
+color: #fff;
+padding: 3px 10px;
+cursor: pointer;
+position: relative;
+background-color:#c30;
+}
+.hide_button {
+color: #888;
+padding: 10px 3px;
+margin: 3px;
+}
+.show_button {
+color: #888;
+padding: 10px 3px;
+margin: 3px;
+}
+.content {
+padding: 5px 10px;
+background-color:#fafafa;
+}
+.hidden_header_unshown {
+margin: 0px;
+padding: 0px 0px;
+}
+.hidden_header {
+margin: 0px;
+padding: 0px 5px;
+}
+p { padding: 5px 0; }
+</style> 
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js"></script>
+<script type="text/javascript">
+jQuery(document).ready(function() {
+  jQuery(".hidden_header_unshown").slideToggle("fast");
+  jQuery(".hidden_post").slideToggle("fast");
+  //toggle the componenet with class msg_body
+  jQuery(".hide_button").click(function()
+  {
+    jQuery(this).closest(".post").prev(".hidden_header_unshown").slideToggle("fast").removeClass("hidden_header_unshown").addClass("hidden_header");
+    jQuery(this).closest(".post").slideToggle("fast").removeClass("post").addClass("hidden_post");
+  });
+  jQuery(".show_button").click(function()
+  {
+    jQuery(this).closest(".hidden_header").next(".hidden_post").slideToggle("fast").removeClass("hidden_post").addClass("post");
+    jQuery(this).closest(".hidden_header").slideToggle("fast").removeClass("hidden_header").addClass("hidden_header_unshown");
+  });
+});
+</script>
+"""\
+             '<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js"></script>'\
+               '</head><body>'
     self.q = Queue.Queue()
     self.threads =[]
     
