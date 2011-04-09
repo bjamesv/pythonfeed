@@ -242,8 +242,8 @@ class UrlHandler():
         
       href_target = ''
       if(self.new_window == 'y'):href_target = "target=\"_blank\""
-      hidden_header = ''.join( ['<p class="hidden_header"><span class="show_button"><br>[',which_feed,'][Hidden: ',\
-                                print_title,' - ',print_more_date,'',print_date,'][show full]<br><br></span></p>'])
+      hidden_header = ''.join( ['<p class="hidden_header"><br>[',which_feed,']<span class="show_button">[Hidden: ',\
+                                print_title,'</span> - ',print_more_date,'',print_date,'][show full]<br><br></p>'])
       return ''.join( [ hidden_header,'<div class="hidden_post"><h3  class="title"> &nbsp; ',print_date,' <span class="hide_button">(hide)</span></h3>',
                       '<img height=16 width=16 src=\"',print_image,"\"></img> <a ",href_target," href=\"",
                                           print_link,"\">",print_title,"</a> - ",which_feed," - ",print_more_date,"",
@@ -390,6 +390,9 @@ margin: 3px;
 padding: 5px 10px;
 background-color:#fafafa;
 }
+.hidden_post {
+display: none;
+}
 .hidden_header_unshown {
 margin: 0px;
 padding: 0px 0px;
@@ -403,8 +406,8 @@ p { padding: 5px 0; }
 <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js"></script>
 <script type="text/javascript">
 jQuery(document).ready(function() {
-  jQuery(".hidden_header_unshown").slideToggle("fast");
-  jQuery(".hidden_post").slideToggle("fast");
+  //jQuery(".hidden_header_unshown").slideToggle("fast");
+  //jQuery(".hidden_post").slideToggle("fast");
   //toggle the componenet with class msg_body
   jQuery(".hide_button").click(function()
   {
