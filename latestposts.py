@@ -109,7 +109,7 @@ class UrlHandler():
       return pythonURL 
   def getPythonURL_host(self):
       return os.path.split(self.req_uri)[1] 
-  def formatListEditor( self, req_uri):
+  def formatListEditor( self):
       error_html = ""
       if self.flag_add_url in self.parameters and self.flag_edit_urls in self.parameters:
         f = self.apache_file_name
@@ -135,7 +135,7 @@ class UrlHandler():
       for i,url in enumerate(self.urls):
         url = url.rstrip()
         html = html + '<tr><td><a href="'+ url +'">'+ url+'</a> '\
-               '<form id="id_del_'+str(i)+'" name="del_url" action="'+os.path.split(req_uri)[1]+'" method="get">'\
+               '<form id="id_del_'+str(i)+'" name="del_url" action="feed" method="get">'\
                '<input type="button" value="remove" onclick="show_delete_confirm('+str(i)+')" />'\
                '<input type="hidden" name="del_row" value="'+str(i)+'"/>'\
                '<input type="hidden" name="del_url" value="'+url+'"/>'\
@@ -158,7 +158,7 @@ class UrlHandler():
                       '</script>'
         
       #'add_form.elements.push(window.location.search.substring(1));'\
-      html = html + '<tr><td><form id="id_add_url" name="add_url" action="'+os.path.split(req_uri)[1]+'" method="get">'\
+      html = html + '<tr><td><form id="id_add_url" name="add_url" action="feed" method="get">'\
              '<input type="text" name="add_url" /><input type="button" value="Add" onclick="show_confirm()"/>'
       
       html = html + hidden_fields
@@ -352,7 +352,7 @@ class UrlHandler():
     self.flag_edit_urls = 'edit_urls'
     if self.flag_edit_urls in self.apache_parameters:
       self.parameters[self.flag_edit_urls] = escape(self.apache_parameters[self.flag_edit_urls][0])
-      return self.formatListEditor( self.req_uri)
+      return self.formatListEditor()
     
 
     
