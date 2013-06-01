@@ -7,24 +7,40 @@ import pickle
 import sys
 import threading
 import Queue
+from google.appengine.ext import db
+from google.appengine.api import users
 
 import logging
 from cgi import escape
 
+class FeedModel(db.Model):
+  filename = db.StringProperty(required=True)
+  xml = db.BlobProperty(required=True)
+  e_tag = db.StringProperty(required=False)
+  modified = db.StringProperty(required=True)
+
 def dump_feed( fp, six_tuple_fullpath):
   if(fp.has_key('etag')):e_tag=fp.etag
   else: e_tag=''
-  if(fp.has_key('modified')): mod=fp.modified
+  if(fp.has_key('modified')): mod=str(time.mktime(fp.modified))
   else: mod=''
   stored_fields = { 'xml':fp.xml, 'etag':e_tag, 'modified':mod}
   #sys.stderr.write(''.join( ["dumping: ",fp.xml, "etag", str(e_tag), "mod", str(mod) ]))
   logging.debug(''.join( ["dumping: ",fp.xml, "etag", str(e_tag), "mod", str(mod) ]))
-  out_file = open(six_tuple_fullpath, 'wb')
-  pickle.dump( stored_fields,out_file)
-  out_file.close()
+  ##https://developers.google.com/appengine/docs/python/datastore/overview
+  feed_model = FeedModel(filename=six_tuple_fullpath
+                        ,xml=stored_fields['xml']
+                        ,e_tag=stored_fields['etag']
+                        ,modified=stored_fields['modified'])
+  feed_model.put()
 
 def load_feed( url, six_tuple_fullpath):
-  stored_fields = pickle.load(open(six_tuple_fullpath, 'rb'))
+  feed_model = db.GqlQuery("SELECT * FROM FeedModel WHERE filename= :1"
+                          ,six_tuple_fullpath)
+  feed_model.get()
+  stored_fields = { 'xml':feed_model.xml
+                  , 'etag':feed_model.e_tag
+                  , 'modified':time.gmtime(feed_model.mod)}
   re_request_fp = feedparser.parse( url, etag=stored_fields['etag'], modified=stored_fields['modified'])
   #sys.stderr.write(''.join( ["pre status ",url ]))
   logging.warning(''.join( ["pre status ",url ]))
@@ -42,11 +58,25 @@ def load_feed( url, six_tuple_fullpath):
   dump_feed( re_request_fp, six_tuple_fullpath)
   return re_request_fp
 
+class SubscriptionsModel(db.Model):
+  user = db.StringProperty(required=True)
+  feed_url = db.StringProperty(required=True)
+
 def add_url( url, filename):
-  with open(filename, 'a') as f:
+  ##https://developers.google.com/appengine/docs/python/datastore/overview
+  subcriptions_model = SubscriptionsModel(user=users.get_current_user().email()
+                                         ,feed_url=url)
+  check_query = db.GqlQuery("SELECT * FROM SubscriptionsModel "
+                                                 +"where user= :1 "
+                                                 +"and feed_url= :2"
+                                              ,users.get_current_user().email()
+                                              ,url)
+  existing_subcriptions_model = check_query.get()
+  if(existing_subcriptions_model == None):
     logging.warning("Writing to urls file")
-    f.write(url + '\r\n')
-  f.close()
+    subcriptions_model.put()
+  else:
+    logging.warning("url already written")
   logging.warning("Done writing to urls file")
   
 
@@ -56,7 +86,7 @@ def fetch_process( queue, url, apache_location):
     #queue.put(fp)
     #return fp
     url_six_tuple = urlparse.urlparse(url)
-    six_tuple_filename = str.replace(''.join(  url_six_tuple ),'/','')
+    six_tuple_filename = unicode.replace(''.join(  url_six_tuple ),'/','')
     six_tuple_fullpath = ''.join( [apache_location,six_tuple_filename])
     six_tuple_fullpath = six_tuple_fullpath.rstrip()
     if( os.path.exists( six_tuple_fullpath )):
@@ -83,10 +113,10 @@ class UrlHandler():
     self.req_uri = request
     self.apache_location = loc
   def load_urls(self):
-    with open( self.apache_file_name,'r') as url_file:
-      logging.warning("Reading urls file")
-      self.urls = url_file.readlines()
-    url_file.close()
+    subscriptions_model = db.GqlQuery("SELECT * FROM SubscriptionsModel WHERE user= :1"
+                          ,self.apache_file_name)
+    logging.warning("Reading urls file")
+    self.urls = subscriptions_model.fetch(limit=None)
     logging.warning("Done reading urls file")
 
   def del_url( self, url, row):
@@ -94,10 +124,11 @@ class UrlHandler():
     if len(self.urls) is 0:
       return '<div style="color:#FF0000"><p>Remove Not executed: loaded Url list contains 0 entries.</p></div>'
     del self.urls[row]
-    with open(self.apache_file_name, 'w') as f:
-      logging.warning("Erasing & writing to urls file")
-      f.writelines(self.urls)
-    f.close()
+    logging.warning("Erasing url from datastore")
+    query = db.GqlQuery("SELECT * FROM SubscriptionsModel WHERE user= :1"
+                          ,self.apache_file_name)
+    subscriptions_model = query.get()
+    subscriptions_model.delete()
     logging.warning("Done writing to urls file")
     return '<div style="color:#00FF00"><p>Url: "'+ url +'" (row '+str(row)+') removed.</p></div>'
   
@@ -133,16 +164,16 @@ class UrlHandler():
              '<input type="hidden" name="num" value="'+ str(self.num_entries_to_display) +'"/>'\
              '<input type="hidden" name="edit_urls" value=""/>'
       for i,url in enumerate(self.urls):
-        url = url.rstrip()
+        url = url.feed_url.rstrip()
         html = html + '<tr><td><a href="'+ url +'">'+ url+'</a> '\
-               '<form id="id_del_'+str(i)+'" name="del_url" action="feed" method="get">'\
+               '<form id="id_del_'+str(i)+'" name="del_url" action="" method="get">'\
                '<input type="button" value="remove" onclick="show_delete_confirm('+str(i)+')" />'\
                '<input type="hidden" name="del_row" value="'+str(i)+'"/>'\
                '<input type="hidden" name="del_url" value="'+url+'"/>'\
                + hidden_fields + '</form></td></tr>'
       html = html + '<script type="text/javascript">'\
                         'function show_confirm() {'\
-                          'var r=confirm("Add URL to '+ self.url_file_name +'?");'\
+                          'var r=confirm("Add URL to pythonfeed list for user '+ self.url_file_name +'?");'\
                           'if (r==true) {'\
                              'add_form = document.forms["id_add_url"];'\
                              'add_form.submit();'\
@@ -158,7 +189,7 @@ class UrlHandler():
                       '</script>'
         
       #'add_form.elements.push(window.location.search.substring(1));'\
-      html = html + '<tr><td><form id="id_add_url" name="add_url" action="feed" method="get">'\
+      html = html + '<tr><td><form id="id_add_url" name="add_url" action="" method="get">'\
              '<input type="text" name="add_url" /><input type="button" value="Add" onclick="show_confirm()"/>'
       
       html = html + hidden_fields
@@ -166,7 +197,7 @@ class UrlHandler():
       return html
   def profile_threads(self):
       for url in self.urls:
-        p = threading.Thread(target=fetch_process, args=(self.q, url, self.apache_location))
+        p = threading.Thread(target=fetch_process, args=(self.q, url.feed_url, self.apache_location))
         p.start()
         self.threads.append(p)
       ##begin fetching results from the queue, until all subprocesses are done
@@ -182,7 +213,7 @@ class UrlHandler():
     
   def profile_no_threads(self):
       for url in self.urls:
-        self.feeds.append(fetch_process(self.q, url, self.apache_location))
+        self.feeds.append(fetch_process(self.q, url.feed_url, self.apache_location))
   def formatEntry(self, entry, make_grey_tuple, source_feed, epoch):
       """
       
@@ -310,9 +341,9 @@ class UrlHandler():
     if 'urls' in self.apache_parameters:
       self.url_file_name = escape(self.apache_parameters['urls'][0])
     else:
-      self.url_file_name='urls.ini'
+      self.url_file_name = users.get_current_user().email()
 
-    self.apache_file_name = ''.join([ self.apache_location, self.url_file_name])
+    self.apache_file_name = self.url_file_name
 
     if 'window' in self.apache_parameters:
       if  escape(self.apache_parameters['window'][0]) == 'y':
@@ -335,7 +366,7 @@ class UrlHandler():
 
     
     self.load_urls()
-    logging.warning("Done with urls file" +str(self.urls))
+    logging.warning("Done with urls file" +str(self.url_file_name))
     
     self.flag_add_url = 'add_url'
     if self.flag_add_url in self.apache_parameters:
